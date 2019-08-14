@@ -1,6 +1,6 @@
 all: jacobi2d
 
-jacobi2d: main.cpp domain.h
+jacobi2d: main.cpp
 	mpicxx -o $@ $<
 
 clean:
