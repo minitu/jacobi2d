@@ -69,8 +69,6 @@ int main(int argc, char** argv) {
   // Domain decomposition
   int bx = domain_size / px;
   int by = domain_size / py;
-  int offx = rx * bx;
-  int offy = ry * by;
 
   // Allocate old & new arrays for temperature data
   double* a_old = (double*)calloc((bx+2) * (by+2), sizeof(double));
@@ -102,10 +100,10 @@ int main(int argc, char** argv) {
   // Main iteration loop
   for (int iter = 1; iter <= n_iters; iter++) {
     // Pack halo data
-    for (int i = 1; i <= bx; i++) sbuf_north[i] = a_old[IND(i,1)];
-    for (int i = 1; i <= bx; i++) sbuf_south[i] = a_old[IND(i,by)];
-    for (int i = 1; i <= by; i++) sbuf_east[i] = a_old[IND(bx,i)];
-    for (int i = 1; i <= by; i++) sbuf_west[i] = a_old[IND(1,i)];
+    for (int i = 0; i < bx; i++) sbuf_north[i] = a_old[IND(1+i,1)];
+    for (int i = 0; i < bx; i++) sbuf_south[i] = a_old[IND(1+i,by)];
+    for (int i = 0; i < by; i++) sbuf_east[i] = a_old[IND(bx,1+i)];
+    for (int i = 0; i < by; i++) sbuf_west[i] = a_old[IND(1,1+i)];
 
     MPI_Request reqs[8];
 
@@ -123,10 +121,10 @@ int main(int argc, char** argv) {
     MPI_Waitall(8, reqs, MPI_STATUSES_IGNORE);
 
     // Unpack halo data
-    for (int i = 1; i <= bx; i++) a_old[IND(i,0)] = rbuf_north[i];
-    for (int i = 1; i <= bx; i++) a_old[IND(i,by+1)] = rbuf_south[i];
-    for (int i = 1; i <= by; i++) a_old[IND(bx+1,i)] = rbuf_east[i];
-    for (int i = 1; i <= by; i++) a_old[IND(0,i)] = rbuf_west[i];
+    for (int i = 0; i < bx; i++) a_old[IND(1+i,0)] = rbuf_north[i];
+    for (int i = 0; i < bx; i++) a_old[IND(1+i,by+1)] = rbuf_south[i];
+    for (int i = 0; i < by; i++) a_old[IND(bx+1,1+i)] = rbuf_east[i];
+    for (int i = 0; i < by; i++) a_old[IND(0,1+i)] = rbuf_west[i];
 
     // Update temperatures
     local_heat = 0.0;
