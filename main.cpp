@@ -10,8 +10,7 @@
 #include <unistd.h>
 #include <mpi.h>
 #include <time.h>
-
-#define IND(x,y) (bx+2)*(y)+(x)
+#include "stencil.h"
 
 int main(int argc, char** argv) {
   // Command line arguments
@@ -70,27 +69,19 @@ int main(int argc, char** argv) {
   int bx = domain_size / px;
   int by = domain_size / py;
 
-  // Allocate old & new arrays for temperature data
-  double* a_old = (double*)calloc((bx+2) * (by+2), sizeof(double));
-  double* a_new = (double*)calloc((bx+2) * (by+2), sizeof(double));
+  // Allocate temperature data & communication buffers
+  double* a_old; double* a_new;
+  size_t pitch;
+  double* sbuf_north; double* sbuf_south;
+  double* sbuf_east; double* sbuf_west;
+  double* rbuf_north; double* rbuf_south;
+  double* rbuf_east; double* rbuf_west;
+  bool allocate_success = gpuAllocate(&a_old, &a_new, &pitch, &sbuf_north, &sbuf_south,
+      &sbuf_east, &sbuf_west, &rbuf_north, &rbuf_south, &rbuf_east, &rbuf_west, bx, by);
+  if (!allocate_success) MPI_Abort(topo_comm, MPI_ERR_OTHER);
 
-  // Randomly initialize temperatures
-  srand(time(NULL));
-  for (int j = 1; j <= by; j++) {
-    for (int i = 1; i <= bx; i++) {
-      a_old[IND(i,j)] = rand() % 10 + 1;
-    }
-  }
-
-  // Allocate communication buffers
-  double* sbuf_north = (double*)calloc(bx, sizeof(double));
-  double* sbuf_south = (double*)calloc(bx, sizeof(double));
-  double* sbuf_east = (double*)calloc(by, sizeof(double));
-  double* sbuf_west = (double*)calloc(by, sizeof(double));
-  double* rbuf_north = (double*)calloc(bx, sizeof(double));
-  double* rbuf_south = (double*)calloc(bx, sizeof(double));
-  double* rbuf_east = (double*)calloc(by, sizeof(double));
-  double* rbuf_west = (double*)calloc(by, sizeof(double));
+  // Randomly initialize temperature
+  gpuRandInit(a_old, bx, by, pitch);
 
   // Heat of system
   double local_heat = 0.0;
@@ -100,10 +91,10 @@ int main(int argc, char** argv) {
   // Main iteration loop
   for (int iter = 1; iter <= n_iters; iter++) {
     // Pack halo data
-    for (int i = 0; i < bx; i++) sbuf_north[i] = a_old[IND(1+i,1)];
-    for (int i = 0; i < bx; i++) sbuf_south[i] = a_old[IND(1+i,by)];
-    for (int i = 0; i < by; i++) sbuf_east[i] = a_old[IND(bx,1+i)];
-    for (int i = 0; i < by; i++) sbuf_west[i] = a_old[IND(1,1+i)];
+    for (int i = 0; i < bx; i++) sbuf_north[i] = h_a_old[IND(1+i,1)];
+    for (int i = 0; i < bx; i++) sbuf_south[i] = h_a_old[IND(1+i,by)];
+    for (int i = 0; i < by; i++) sbuf_east[i] = h_a_old[IND(bx,1+i)];
+    for (int i = 0; i < by; i++) sbuf_west[i] = h_a_old[IND(1,1+i)];
 
     MPI_Request reqs[8];
 
@@ -121,19 +112,14 @@ int main(int argc, char** argv) {
     MPI_Waitall(8, reqs, MPI_STATUSES_IGNORE);
 
     // Unpack halo data
-    for (int i = 0; i < bx; i++) a_old[IND(1+i,0)] = rbuf_north[i];
-    for (int i = 0; i < bx; i++) a_old[IND(1+i,by+1)] = rbuf_south[i];
-    for (int i = 0; i < by; i++) a_old[IND(bx+1,1+i)] = rbuf_east[i];
-    for (int i = 0; i < by; i++) a_old[IND(0,1+i)] = rbuf_west[i];
+    for (int i = 0; i < bx; i++) h_a_old[IND(1+i,0)] = rbuf_north[i];
+    for (int i = 0; i < bx; i++) h_a_old[IND(1+i,by+1)] = rbuf_south[i];
+    for (int i = 0; i < by; i++) h_a_old[IND(bx+1,1+i)] = rbuf_east[i];
+    for (int i = 0; i < by; i++) h_a_old[IND(0,1+i)] = rbuf_west[i];
 
     // Update temperatures
     local_heat = 0.0;
-    for (int j = 1; j <= by; j++) {
-      for (int i = 1; i <= bx; i++) {
-        a_new[IND(i,j)] = (a_old[IND(i,j)] + (a_old[IND(i-1,j)] + a_old[IND(i+1,j)] + a_old[IND(i,j-1)] + a_old[IND(i,j+1)]) * 0.25) * 0.5;
-        local_heat += a_new[IND(i,j)];
-      }
-    }
+    gpuStencil(h_a_old, h_a_new, d_a_old, d_a_new, bx, by, 1);
 
     // Sum up all local heat values
     MPI_Allreduce(&local_heat, &global_heat_new, 1, MPI_DOUBLE, MPI_SUM, topo_comm);
@@ -146,7 +132,7 @@ int main(int argc, char** argv) {
 
     // Swap arrays and values
     double* a_tmp;
-    a_tmp = a_new; a_new = a_old; a_old = a_tmp;
+    a_tmp = h_a_new; h_a_new = h_a_old; h_a_old = a_tmp;
     global_heat_old = global_heat_new;
   }
 
