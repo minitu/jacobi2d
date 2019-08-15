@@ -76,25 +76,23 @@ int main(int argc, char** argv) {
   double* sbuf_east; double* sbuf_west;
   double* rbuf_north; double* rbuf_south;
   double* rbuf_east; double* rbuf_west;
+  double* d_local_heat; double* h_local_heat;
   bool allocate_success = gpuAllocate(&a_old, &a_new, &pitch, &sbuf_north, &sbuf_south,
-      &sbuf_east, &sbuf_west, &rbuf_north, &rbuf_south, &rbuf_east, &rbuf_west, bx, by);
+      &sbuf_east, &sbuf_west, &rbuf_north, &rbuf_south, &rbuf_east, &rbuf_west, bx, by,
+      &d_local_heat, &h_local_heat);
   if (!allocate_success) MPI_Abort(topo_comm, MPI_ERR_OTHER);
 
   // Randomly initialize temperature
   gpuRandInit(a_old, bx, by, pitch);
 
   // Heat of system
-  double local_heat = 0.0;
   double global_heat_old = 0.0;
   double global_heat_new = 0.0;
 
   // Main iteration loop
   for (int iter = 1; iter <= n_iters; iter++) {
     // Pack halo data
-    for (int i = 0; i < bx; i++) sbuf_north[i] = h_a_old[IND(1+i,1)];
-    for (int i = 0; i < bx; i++) sbuf_south[i] = h_a_old[IND(1+i,by)];
-    for (int i = 0; i < by; i++) sbuf_east[i] = h_a_old[IND(bx,1+i)];
-    for (int i = 0; i < by; i++) sbuf_west[i] = h_a_old[IND(1,1+i)];
+    gpuPackHalo(a_old, bx, by, pitch, sbuf_north, sbuf_south, sbuf_east, sbuf_west);
 
     MPI_Request reqs[8];
 
@@ -112,17 +110,14 @@ int main(int argc, char** argv) {
     MPI_Waitall(8, reqs, MPI_STATUSES_IGNORE);
 
     // Unpack halo data
-    for (int i = 0; i < bx; i++) h_a_old[IND(1+i,0)] = rbuf_north[i];
-    for (int i = 0; i < bx; i++) h_a_old[IND(1+i,by+1)] = rbuf_south[i];
-    for (int i = 0; i < by; i++) h_a_old[IND(bx+1,1+i)] = rbuf_east[i];
-    for (int i = 0; i < by; i++) h_a_old[IND(0,1+i)] = rbuf_west[i];
+    gpuUnpackHalo(a_old, bx, by, pitch, rbuf_north, rbuf_south, rbuf_east, rbuf_west);
 
     // Update temperatures
-    local_heat = 0.0;
-    gpuStencil(h_a_old, h_a_new, d_a_old, d_a_new, bx, by, 1);
+    *h_local_heat = 0.0;
+    gpuStencil(a_old, a_new, bx, by, pitch, d_local_heat, h_local_heat);
 
     // Sum up all local heat values
-    MPI_Allreduce(&local_heat, &global_heat_new, 1, MPI_DOUBLE, MPI_SUM, topo_comm);
+    MPI_Allreduce(h_local_heat, &global_heat_new, 1, MPI_DOUBLE, MPI_SUM, topo_comm);
 
     // Check difference in global heat
     if (rank == 0) {
@@ -132,7 +127,7 @@ int main(int argc, char** argv) {
 
     // Swap arrays and values
     double* a_tmp;
-    a_tmp = h_a_new; h_a_new = h_a_old; h_a_old = a_tmp;
+    a_tmp = a_new; a_new = a_old; a_old = a_tmp;
     global_heat_old = global_heat_new;
   }
 

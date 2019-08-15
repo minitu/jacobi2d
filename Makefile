@@ -7,7 +7,7 @@ main.o: main.cpp stencil.h
 	mpicxx -c $<
 
 stencil.o: stencil.cu stencil.h
-	nvcc -c $<
+	nvcc -c $< -arch=compute_70 -code=sm_70
 
 clean:
 	rm -rf jacobi2d *.o
