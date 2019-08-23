@@ -2,6 +2,7 @@
 #include <curand_kernel.h>
 #include "stencil.h"
 
+#define SHARED_MEM 0
 #define TILE_SIZE 16
 #define gpuCheck(ans) { gpuAssert((ans), __FILE__, __LINE__); }
 
@@ -26,37 +27,25 @@ __global__ void randInitKernel(double* a_old, int bx, int by, size_t n_pitch) {
 __global__ void stencilKernel(double* a_old, double* a_new, int bx, int by, size_t n_pitch) {
   int i = blockDim.x * blockIdx.x + threadIdx.x;
   int j = blockDim.y * blockIdx.y + threadIdx.y;
-
+#if !SHARED_MEM
   if (i >= 1 && i <= bx && j >= 1 && j <= by) {
     a_new[IND(i,j)] = (a_old[IND(i,j)] + (a_old[IND(i-1,j)] + a_old[IND(i+1,j)] + a_old[IND(i,j-1)] + a_old[IND(i,j+1)]) * 0.25) * 0.5;
   }
+#else
+  __shared__ double s_a_old[TILE_SIZE][TILE_SIZE];
 
-  /* TODO Use shared memory
-  int i = istart + threadIdx.x + blockDim.x*blockIdx.x;
-  int j = jstart + threadIdx.y + blockDim.y*blockIdx.y;
+  if (i >= 1 && i <= bx && j >= 1 && j <= by) {
+    double center = a_old[IND(i,j)];
+    s_a_old[threadIdx.x][threadIdx.y] = center;
 
-  if (i < ifinish && j < jfinish) {
-    __shared__ double shared_a_old[TILE_SIZE][TILE_SIZE];
-    double center = a_old[j*(bx+2)+i];
-
-    shared_a_old[threadIdx.x][threadIdx.y] = center;
     __syncthreads();
 
-    // update my value based on the surrounding values
-    a_new[j*(bx+2)+i] = (
-      ((threadIdx.x > 1) ? shared_a_old[threadIdx.x-1][threadIdx.y] :
-  a_old[j*(bx+2)+(i-1)]) +
-      ((threadIdx.x < blockDim.x-1) ?
-  shared_a_old[threadIdx.x+1][threadIdx.y] :
-  a_old[j*(bx+2)+(i+1)]) +
-      ((threadIdx.y > 1) ? shared_a_old[threadIdx.x][threadIdx.y-1] :
-  a_old[(j-1)*(bx+2)+i]) +
-      ((threadIdx.y < blockDim.y-1) ?
-  shared_a_old[threadIdx.x][threadIdx.y+1] :
-  a_old[(j+1)*(bx+2)+i]) +
-      center) * 0.2;
+    a_new[IND(i,j)] = (center + (((threadIdx.x > 0 && i > 1) ? s_a_old[threadIdx.x-1][threadIdx.y] : a_old[IND(i-1,j)])
+      + ((threadIdx.x < blockDim.x-1 && i < bx) ? s_a_old[threadIdx.x+1][threadIdx.y] : a_old[IND(i+1,j)])
+      + ((threadIdx.y > 0 && j > 1) ? s_a_old[threadIdx.x][threadIdx.y-1] : a_old[IND(i,j-1)])
+      + ((threadIdx.y < blockDim.y-1 && j < by) ? s_a_old[threadIdx.x][threadIdx.y+1] : a_old[IND(i,j+1)])) * 0.25) * 0.5;
   }
-  */
+#endif
 }
 
 __global__ void sumKernel(double* a_new, int bx, int by, size_t n_pitch, double* sum) {
