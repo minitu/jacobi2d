@@ -138,22 +138,24 @@ void gpuUnpackHalo(double* a_old, int bx, int by, size_t pitch, double* rbuf_nor
         sizeof(double), by, cudaMemcpyHostToDevice));
 }
 
-void gpuStencil(double* a_old, double* a_new, int bx, int by, size_t pitch,
-    double* d_local_heat, double* h_local_heat) {
-  // Stencil kernel
+void gpuStencil(double* a_old, double* a_new, int bx, int by, size_t pitch) {
   dim3 block_dim(TILE_SIZE, TILE_SIZE);
   dim3 grid_dim((bx + block_dim.x - 1) / block_dim.x, (by + block_dim.y - 1) / block_dim.y);
   size_t n_pitch = pitch / sizeof(double);
+
   stencilKernel<<<grid_dim, block_dim>>>(a_old, a_new, bx, by, n_pitch);
   gpuCheck(cudaPeekAtLastError());
   cudaDeviceSynchronize();
+}
 
-  // Reduction kernel for local heat
-  gpuCheck(cudaMemcpy(d_local_heat, h_local_heat, sizeof(double), cudaMemcpyHostToDevice));
-  block_dim.x = 8; block_dim.y = 8; // Smaller block size for more concurrency
-  grid_dim.x = (bx + block_dim.x - 1) / block_dim.x;
-  grid_dim.y = (by + block_dim.y - 1) / block_dim.y;
+void gpuReduce(double* a_new, int bx, int by, size_t pitch, double* d_local_heat,
+    double* h_local_heat) {
+  dim3 block_dim(8, 8); // Smaller block size for more concurrency
+  dim3 grid_dim((bx + block_dim.x - 1) / block_dim.x, (by + block_dim.y - 1) / block_dim.y);
+  size_t n_pitch = pitch / sizeof(double);
+
   sumKernel<<<grid_dim, block_dim>>>(a_new, bx, by, n_pitch, d_local_heat);
+  gpuCheck(cudaPeekAtLastError());
   cudaDeviceSynchronize();
   gpuCheck(cudaMemcpy(h_local_heat, d_local_heat, sizeof(double), cudaMemcpyDeviceToHost));
 }

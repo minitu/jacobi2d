@@ -12,6 +12,8 @@
 #include <time.h>
 #include "stencil.h"
 
+#define N_TIMER 10
+
 int main(int argc, char** argv) {
   // Command line arguments
   int c;
@@ -89,10 +91,18 @@ int main(int argc, char** argv) {
   double global_heat_old = 0.0;
   double global_heat_new = 0.0;
 
+  // Timers
+  double local_times[N_TIMER];
+  double global_times[N_TIMER*world_size];
+
   // Main iteration loop
   for (int iter = 1; iter <= n_iters; iter++) {
+    local_times[0] = MPI_Wtime();
+
     // Pack halo data
     gpuPackHalo(a_old, bx, by, pitch, sbuf_north, sbuf_south, sbuf_east, sbuf_west);
+
+    local_times[1] = MPI_Wtime();
 
     MPI_Request reqs[8];
 
@@ -109,26 +119,59 @@ int main(int argc, char** argv) {
 
     MPI_Waitall(8, reqs, MPI_STATUSES_IGNORE);
 
+    local_times[2] = MPI_Wtime();
+
     // Unpack halo data
     gpuUnpackHalo(a_old, bx, by, pitch, rbuf_north, rbuf_south, rbuf_east, rbuf_west);
 
+    local_times[3] = MPI_Wtime();
+
     // Update temperatures
+    gpuStencil(a_old, a_new, bx, by, pitch);
+
+    local_times[4] = MPI_Wtime();
+
+    // Reduce local heat
     *h_local_heat = 0.0;
-    gpuStencil(a_old, a_new, bx, by, pitch, d_local_heat, h_local_heat);
+    gpuReduce(a_new, bx, by, pitch, d_local_heat, h_local_heat);
+
+    local_times[5] = MPI_Wtime();
 
     // Sum up all local heat values
     MPI_Allreduce(h_local_heat, &global_heat_new, 1, MPI_DOUBLE, MPI_SUM, topo_comm);
 
+    local_times[6] = MPI_Wtime();
+
     // Check difference in global heat
+    /*
     if (rank == 0) {
       printf("[%03d] old: %.3lf, new: %.3lf, diff: %.3lf\n", iter,
           global_heat_old, global_heat_new, global_heat_new - global_heat_old);
     }
+    */
 
     // Swap arrays and values
     double* a_tmp;
     a_tmp = a_new; a_new = a_old; a_old = a_tmp;
     global_heat_old = global_heat_new;
+
+    // Gather times
+    MPI_Gather(local_times, N_TIMER, MPI_DOUBLE, global_times, N_TIMER, MPI_DOUBLE, 0, topo_comm);
+
+    // Print times
+    if (rank == 0) {
+      for (int j = 0; j < world_size; j++) {
+        printf("[%03d,%03d] Pack: %.3lf, MPI Halo: %.3lf, Unpack: %.3lf, Stencil: %.3lf,"
+            " Reduce: %.3lf, MPI Allreduce: %.3lf, Iter: %.3lf\n", iter, j,
+            (global_times[N_TIMER*j+1] - global_times[N_TIMER*j+0]) * 1000000,
+            (global_times[N_TIMER*j+2] - global_times[N_TIMER*j+1]) * 1000000,
+            (global_times[N_TIMER*j+3] - global_times[N_TIMER*j+2]) * 1000000,
+            (global_times[N_TIMER*j+4] - global_times[N_TIMER*j+3]) * 1000000,
+            (global_times[N_TIMER*j+5] - global_times[N_TIMER*j+4]) * 1000000,
+            (global_times[N_TIMER*j+6] - global_times[N_TIMER*j+5]) * 1000000,
+            (global_times[N_TIMER*j+6] - global_times[N_TIMER*j+0]) * 1000000);
+      }
+    }
   }
 
   // Finalize MPI
