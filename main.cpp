@@ -102,6 +102,9 @@ int main(int argc, char** argv) {
     // Pack halo data
     gpuPackHalo(a_old, bx, by, pitch, sbuf_north, sbuf_south, sbuf_east, sbuf_west);
 
+    MPI_Barrier(MPI_COMM_WORLD);
+    MPI_Barrier(MPI_COMM_WORLD);
+
     local_times[1] = MPI_Wtime();
 
     MPI_Request reqs[8];
@@ -134,6 +137,9 @@ int main(int argc, char** argv) {
     // Reduce local heat
     *h_local_heat = 0.0;
     gpuReduce(a_new, bx, by, pitch, d_local_heat, h_local_heat);
+
+    MPI_Barrier(MPI_COMM_WORLD);
+    MPI_Barrier(MPI_COMM_WORLD);
 
     local_times[5] = MPI_Wtime();
 
