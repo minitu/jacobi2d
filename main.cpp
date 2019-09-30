@@ -12,6 +12,7 @@
 #include <time.h>
 #include "stencil.h"
 
+#define NONBLOCKING 1
 #define N_TIMER 10
 
 int main(int argc, char** argv) {
@@ -70,6 +71,11 @@ int main(int argc, char** argv) {
   // Domain decomposition
   int bx = domain_size / px;
   int by = domain_size / py;
+#ifdef DEBUG
+  if (rank == 0) {
+    printf("bx: %d, by: %d\n", bx, by);
+  }
+#endif
 
   // Allocate temperature data & communication buffers
   double* a_old; double* a_new;
@@ -110,17 +116,21 @@ int main(int argc, char** argv) {
     MPI_Request reqs[8];
 
     // Send & receive halos
-    MPI_Isend(sbuf_north, bx, MPI_DOUBLE, north, 9, topo_comm, &reqs[0]);
-    MPI_Isend(sbuf_south, bx, MPI_DOUBLE, south, 9, topo_comm, &reqs[1]);
-    MPI_Isend(sbuf_east, by, MPI_DOUBLE, east, 9, topo_comm, &reqs[2]);
-    MPI_Isend(sbuf_west, by, MPI_DOUBLE, west, 9, topo_comm, &reqs[3]);
-
+#if NONBLOCKING
     MPI_Irecv(rbuf_north, bx, MPI_DOUBLE, north, 9, topo_comm, &reqs[4]);
     MPI_Irecv(rbuf_south, bx, MPI_DOUBLE, south, 9, topo_comm, &reqs[5]);
     MPI_Irecv(rbuf_east, by, MPI_DOUBLE, east, 9, topo_comm, &reqs[6]);
     MPI_Irecv(rbuf_west, by, MPI_DOUBLE, west, 9, topo_comm, &reqs[7]);
 
+    MPI_Isend(sbuf_north, bx, MPI_DOUBLE, north, 9, topo_comm, &reqs[0]);
+    MPI_Isend(sbuf_south, bx, MPI_DOUBLE, south, 9, topo_comm, &reqs[1]);
+    MPI_Isend(sbuf_east, by, MPI_DOUBLE, east, 9, topo_comm, &reqs[2]);
+    MPI_Isend(sbuf_west, by, MPI_DOUBLE, west, 9, topo_comm, &reqs[3]);
+
     MPI_Waitall(8, reqs, MPI_STATUSES_IGNORE);
+#else
+    // TODO
+#endif
 
     local_times[2] = MPI_Wtime();
 
@@ -144,7 +154,7 @@ int main(int argc, char** argv) {
     local_times[5] = MPI_Wtime();
 
     // Sum up all local heat values
-    MPI_Allreduce(h_local_heat, &global_heat_new, 1, MPI_DOUBLE, MPI_SUM, topo_comm);
+    //MPI_Allreduce(h_local_heat, &global_heat_new, 1, MPI_DOUBLE, MPI_SUM, topo_comm);
 
     local_times[6] = MPI_Wtime();
 
