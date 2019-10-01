@@ -12,9 +12,6 @@
 #include <time.h>
 #include "stencil.h"
 
-#define NONBLOCKING 1
-#define N_TIMER 10
-
 int main(int argc, char** argv) {
   // Command line arguments
   int c;
@@ -60,7 +57,7 @@ int main(int argc, char** argv) {
   MPI_Cart_shift(topo_comm, 0, 1, &west, &east);
   MPI_Cart_shift(topo_comm, 1, 1, &north, &south);
 
-#ifdef DEBUG
+#if DEBUG
   if (rank == 0) {
     printf("Rank grid: (%d, %d)\n", px, py);
   }
@@ -71,7 +68,7 @@ int main(int argc, char** argv) {
   // Domain decomposition
   int bx = domain_size / px;
   int by = domain_size / py;
-#ifdef DEBUG
+#if DEBUG
   if (rank == 0) {
     printf("bx: %d, by: %d\n", bx, by);
   }
@@ -85,13 +82,42 @@ int main(int argc, char** argv) {
   double* rbuf_north; double* rbuf_south;
   double* rbuf_east; double* rbuf_west;
   double* d_local_heat; double* h_local_heat;
-  bool allocate_success = gpuAllocate(&a_old, &a_new, &pitch, &sbuf_north, &sbuf_south,
+  bool allocate_success;
+#if USE_GPU
+  allocate_success = gpuAllocate(&a_old, &a_new, &pitch, &sbuf_north, &sbuf_south,
       &sbuf_east, &sbuf_west, &rbuf_north, &rbuf_south, &rbuf_east, &rbuf_west, bx, by,
       &d_local_heat, &h_local_heat);
-  if (!allocate_success) MPI_Abort(topo_comm, MPI_ERR_OTHER);
+#else
+  a_old = (double*)malloc((bx+2) * (by+2) * sizeof(double));
+  a_new = (double*)malloc((bx+2) * (by+2) * sizeof(double));
+  sbuf_north = (double*)malloc(bx * sizeof(double));
+  sbuf_south = (double*)malloc(bx * sizeof(double));
+  sbuf_east = (double*)malloc(by * sizeof(double));
+  sbuf_west = (double*)malloc(by * sizeof(double));
+  rbuf_north = (double*)malloc(bx * sizeof(double));
+  rbuf_south = (double*)malloc(bx * sizeof(double));
+  rbuf_east = (double*)malloc(by * sizeof(double));
+  rbuf_west = (double*)malloc(by * sizeof(double));
+  h_local_heat = (double*)malloc(sizeof(double));
+  allocate_success = a_old && a_new && sbuf_north && sbuf_south && sbuf_east
+    && sbuf_west && rbuf_north && rbuf_south && rbuf_east && rbuf_west && h_local_heat;
+#endif
+  if (!allocate_success) {
+    if (rank == 0) printf("Memory allocation failed!\n");
+    MPI_Abort(topo_comm, MPI_ERR_OTHER);
+  }
 
   // Randomly initialize temperature
+#if USE_GPU
   gpuRandInit(a_old, bx, by, pitch);
+#else
+  srand(time(NULL));
+  for (int j = 1; j <= by; j++) {
+    for (int i = 1; i <= bx; i++) {
+      a_old[IND(i,j)] = rand() % 100;
+    }
+  }
+#endif
 
   // Heat of system
   double global_heat_old = 0.0;
@@ -106,7 +132,22 @@ int main(int argc, char** argv) {
     local_times[0] = MPI_Wtime();
 
     // Pack halo data
+#if USE_GPU
     gpuPackHalo(a_old, bx, by, pitch, sbuf_north, sbuf_south, sbuf_east, sbuf_west);
+#else
+    for (int i = 1; i <= bx; i++) {
+      sbuf_north[i-1] = a_old[IND(i,0)];
+    }
+    for (int i = 1; i <= bx; i++) {
+      sbuf_south[i-1] = a_old[IND(i,by+1)];
+    }
+    for (int j = 1; j <= by; j++) {
+      sbuf_east[j-1] = a_old[IND(bx+1,j)];
+    }
+    for (int j = 1; j <= by; j++) {
+      sbuf_west[j-1] = a_old[IND(0,j)];
+    }
+#endif
 
     MPI_Barrier(MPI_COMM_WORLD);
     MPI_Barrier(MPI_COMM_WORLD);
@@ -134,19 +175,51 @@ int main(int argc, char** argv) {
 
     local_times[2] = MPI_Wtime();
 
+#if USE_GPU
     // Unpack halo data
     gpuUnpackHalo(a_old, bx, by, pitch, rbuf_north, rbuf_south, rbuf_east, rbuf_west);
+#else
+    for (int i = 1; i <= bx; i++) {
+      a_old[IND(i,0)] = rbuf_north[i-1];
+    }
+    for (int i = 1; i <= bx; i++) {
+      a_old[IND(i,by+1)] = rbuf_south[i-1];
+    }
+    for (int j = 1; j <= by; j++) {
+      a_old[IND(bx+1,j)] = rbuf_east[j-1];
+    }
+    for (int j = 1; j <= by; j++) {
+      a_old[IND(0,j)] = rbuf_west[j-1];
+    }
+#endif
 
     local_times[3] = MPI_Wtime();
 
     // Update temperatures
+#if USE_GPU
     gpuStencil(a_old, a_new, bx, by, pitch);
+#else
+    for (int j = 1; j <= by; j++) {
+      for (int i = 1; i <= bx; i++) {
+        a_new[IND(i,j)] = (a_old[IND(i,j)] + (a_old[IND(i-1,j)] + a_old[IND(i+1,j)]
+              + a_old[IND(i,j-1)] + a_old[IND(i,j+1)]) * 0.25) * 0.5;
+      }
+    }
+#endif
 
     local_times[4] = MPI_Wtime();
 
     // Reduce local heat
     *h_local_heat = 0.0;
+#if USE_GPU
     gpuReduce(a_new, bx, by, pitch, d_local_heat, h_local_heat);
+#else
+    for (int j = 1; j <= by; j++) {
+      for (int i = 1; i <= bx; i++) {
+        *h_local_heat += a_new[IND(i,j)];
+      }
+    }
+#endif
 
     MPI_Barrier(MPI_COMM_WORLD);
     MPI_Barrier(MPI_COMM_WORLD);
@@ -154,17 +227,15 @@ int main(int argc, char** argv) {
     local_times[5] = MPI_Wtime();
 
     // Sum up all local heat values
-    //MPI_Allreduce(h_local_heat, &global_heat_new, 1, MPI_DOUBLE, MPI_SUM, topo_comm);
+    MPI_Allreduce(h_local_heat, &global_heat_new, 1, MPI_DOUBLE, MPI_SUM, topo_comm);
 
     local_times[6] = MPI_Wtime();
 
     // Check difference in global heat
-    /*
     if (rank == 0) {
       printf("[%03d] old: %.3lf, new: %.3lf, diff: %.3lf\n", iter,
           global_heat_old, global_heat_new, global_heat_new - global_heat_old);
     }
-    */
 
     // Swap arrays and values
     double* a_tmp;

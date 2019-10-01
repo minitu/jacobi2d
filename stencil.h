@@ -1,7 +1,16 @@
 #ifndef STENCIL_H_
 #define STENCIL_H_
 
+#define DEBUG 0
+#define USE_GPU 0
+#define NONBLOCKING 1
+#define N_TIMER 10
+
+#if USE_GPU
 #define IND(x,y) (n_pitch)*(y)+(x)
+#else
+#define IND(x,y) (bx+2)*(y)+(x)
+#endif
 
 bool gpuAllocate(double** a_old, double** a_new, size_t* pitch, double** sbuf_north,
     double** sbuf_south, double** sbuf_east, double** sbuf_west, double** rbuf_north,
