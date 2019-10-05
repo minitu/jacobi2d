@@ -1,13 +1,19 @@
-all: jacobi2d
+all: jacobi2d halotest
 
 jacobi2d: main.o stencil.o
-	mpicxx -pthread -o $@ $^ -L$(CUDA_DIR)/lib64 -lcudart
+	mpicxx -o $@ $^ -L$(CUDA_DIR)/lib64 -lcudart
+
+halotest: halotest.o
+	mpicxx -o $@ $^
+
+halotest.o: halotest.cpp
+	mpicxx -c $<
 
 main.o: main.cpp stencil.h
-	mpicxx -pthread -c $<
+	mpicxx -c $<
 
 stencil.o: stencil.cu stencil.h
 	nvcc -c $< -arch=compute_70 -code=sm_70
 
 clean:
-	rm -rf jacobi2d *.o
+	rm -rf jacobi2d halotest *.o
