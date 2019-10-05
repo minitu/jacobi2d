@@ -10,6 +10,7 @@
 #include <unistd.h>
 #include <mpi.h>
 #include <time.h>
+#include <float.h>
 #include "stencil.h"
 
 int main(int argc, char** argv) {
@@ -125,7 +126,14 @@ int main(int argc, char** argv) {
 
   // Timers
   double local_times[N_TIMER];
-  double global_times[N_TIMER*world_size];
+  double local_durations[N_DUR];
+  double local_durations_sum[N_DUR];
+  double local_durations_min[N_DUR];
+  double global_durations[N_DUR*world_size];
+  for (int i = 0; i < N_DUR; i++) {
+    local_durations_sum[i] = 0;
+    local_durations_min[i] = DBL_MAX;
+  }
 
   // Main iteration loop
   for (int iter = 1; iter <= n_iters; iter++) {
@@ -232,34 +240,91 @@ int main(int argc, char** argv) {
     local_times[6] = MPI_Wtime();
 
     // Check difference in global heat
+    /*
     if (rank == 0) {
       printf("[%03d] old: %.3lf, new: %.3lf, diff: %.3lf\n", iter,
           global_heat_old, global_heat_new, global_heat_new - global_heat_old);
     }
+    */
 
     // Swap arrays and values
     double* a_tmp;
     a_tmp = a_new; a_new = a_old; a_old = a_tmp;
     global_heat_old = global_heat_new;
 
-    // Gather times
-    MPI_Gather(local_times, N_TIMER, MPI_DOUBLE, global_times, N_TIMER, MPI_DOUBLE, 0, topo_comm);
+    // Calculate durations
+    for (int i = 0; i < N_DUR; i++) {
+      local_durations[i] = local_times[i+1] - local_times[i];
+      // Don't include first iteration in the sum
+      if (iter > 0) {
+        local_durations_sum[i] += local_durations[i];
+      }
+      // Minimum time
+      if (local_durations[i] < local_durations_min[i]) {
+        local_durations_min[i] = local_durations[i];
+      }
+    }
 
-    // Print times
+    // Gather times
+    MPI_Gather(local_durations, N_DUR, MPI_DOUBLE, global_durations, N_DUR, MPI_DOUBLE, 0, topo_comm);
+
+    // Print per-iteration times
     if (rank == 0) {
       for (int j = 0; j < world_size; j++) {
+        double iter_time = 0;
+        for (int i = 0; i < N_DUR; i++) {
+          iter_time += global_durations[N_DUR*j+i];
+        }
+
         printf("[%03d,%03d] Pack: %.3lf, MPI Halo: %.3lf, Unpack: %.3lf, Stencil: %.3lf,"
             " Reduce: %.3lf, MPI Allreduce: %.3lf, Iter: %.3lf\n", iter, j,
-            (global_times[N_TIMER*j+1] - global_times[N_TIMER*j+0]) * 1000000,
-            (global_times[N_TIMER*j+2] - global_times[N_TIMER*j+1]) * 1000000,
-            (global_times[N_TIMER*j+3] - global_times[N_TIMER*j+2]) * 1000000,
-            (global_times[N_TIMER*j+4] - global_times[N_TIMER*j+3]) * 1000000,
-            (global_times[N_TIMER*j+5] - global_times[N_TIMER*j+4]) * 1000000,
-            (global_times[N_TIMER*j+6] - global_times[N_TIMER*j+5]) * 1000000,
-            (global_times[N_TIMER*j+6] - global_times[N_TIMER*j+0]) * 1000000);
+            global_durations[N_DUR*j] * 1000000, global_durations[N_DUR*j+1] * 1000000,
+            global_durations[N_DUR*j+2] * 1000000, global_durations[N_DUR*j+3] * 1000000,
+            global_durations[N_DUR*j+4] * 1000000, global_durations[N_DUR*j+5] * 1000000,
+            iter_time * 1000000);
       }
     }
   }
+
+  /*
+  // Print average times
+  MPI_Gather(local_durations_sum, N_DUR, MPI_DOUBLE, global_durations, N_DUR, MPI_DOUBLE, 0, topo_comm);
+  if (rank == 0) {
+    for (int j = 0; j < world_size; j++) {
+      double total_time = 0;
+      for (int i = 0; i < N_DUR; i++) {
+        global_durations[N_DUR*j+i] /= (n_iters-1); // Don't include first iteration times
+        total_time += global_durations[N_DUR*j+i];
+      }
+
+      printf("[average,%03d] Pack: %.3lf, MPI Halo: %.3lf, Unpack: %.3lf, Stencil: %.3lf,"
+          " Reduce; %.3lf, MPI Allreduce: %.3lf, Iter: %.3lf\n", j,
+          global_durations[N_DUR*j] * 1000000, global_durations[N_DUR*j+1] * 1000000,
+          global_durations[N_DUR*j+2] * 1000000, global_durations[N_DUR*j+3] * 1000000,
+          global_durations[N_DUR*j+4] * 1000000, global_durations[N_DUR*j+5] * 1000000,
+          total_time * 1000000);
+    }
+  }
+  */
+
+  // Print average times
+  MPI_Gather(local_durations_min, N_DUR, MPI_DOUBLE, global_durations, N_DUR, MPI_DOUBLE, 0, topo_comm);
+  if (rank == 0) {
+    for (int j = 0; j < world_size; j++) {
+      double total_time = 0;
+      for (int i = 0; i < N_DUR; i++) {
+        total_time += global_durations[N_DUR*j+i];
+      }
+
+      printf("[minimum,%03d] Pack: %.3lf, MPI Halo: %.3lf, Unpack: %.3lf, Stencil: %.3lf,"
+          " Reduce; %.3lf, MPI Allreduce: %.3lf, Iter: %.3lf\n", j,
+          global_durations[N_DUR*j] * 1000000, global_durations[N_DUR*j+1] * 1000000,
+          global_durations[N_DUR*j+2] * 1000000, global_durations[N_DUR*j+3] * 1000000,
+          global_durations[N_DUR*j+4] * 1000000, global_durations[N_DUR*j+5] * 1000000,
+          total_time * 1000000);
+    }
+  }
+
 
   // Finalize MPI
   MPI_Finalize();

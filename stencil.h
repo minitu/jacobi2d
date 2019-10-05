@@ -1,10 +1,11 @@
 #ifndef STENCIL_H_
 #define STENCIL_H_
 
-#define DEBUG 0
+#define DEBUG 1
 #define USE_GPU 0
 #define NONBLOCKING 1
-#define N_TIMER 10
+#define N_TIMER 7
+#define N_DUR (N_TIMER-1)
 
 #if USE_GPU
 #define IND(x,y) (n_pitch)*(y)+(x)
