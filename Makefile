@@ -4,7 +4,7 @@ jacobi2d: main.o stencil.o
 	mpicxx -o $@ $^ -L$(CUDA_DIR)/lib64 -lcudart
 
 halotest: halotest.o
-	mpicxx -o $@ $^
+	mpicxx -o $@ $^ -L$(HOME)/sst-dumpi/install/lib -ldumpi
 
 halotest.o: halotest.cpp
 	mpicxx -c $<
