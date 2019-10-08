@@ -9,12 +9,13 @@
 #include <mpi.h>
 #include <time.h>
 #include <float.h>
+#include <assert.h>
 
 #define DEBUG 1
-#define USE_GPU 0
-#define NONBLOCKING 1
 #define N_TIMER 3
 #define N_DUR (N_TIMER-1)
+#define TRACE_MODE 1
+#define K_MODE 1
 
 int main(int argc, char** argv) {
   // Command line arguments
@@ -60,6 +61,52 @@ int main(int argc, char** argv) {
   int north, south, east, west;
   MPI_Cart_shift(topo_comm, 0, 1, &west, &east);
   MPI_Cart_shift(topo_comm, 1, 1, &north, &south);
+  int n_neighbors = 0;
+  if (north >= 0) n_neighbors++;
+  if (south >= 0) n_neighbors++;
+  if (east >= 0) n_neighbors++;
+  if (west >= 0) n_neighbors++;
+
+#if K_MODE
+  // Measures K (capital K)
+  int* k_values = NULL;
+  int k_value = 0;
+  int off_node = 0;
+  int node_size = 6;
+
+  int my_node = rank / node_size;
+  int north_node = (north >= 0) ? (north / node_size) : my_node;
+  int south_node = (south >= 0) ? (south / node_size) : my_node;
+  int east_node = (east >= 0) ? (east / node_size) : my_node;
+  int west_node = (west >= 0) ? (west / node_size) : my_node;
+
+  if (north_node != my_node) off_node++;
+  if (south_node != my_node) off_node++;
+  if (east_node != my_node) off_node++;
+  if (west_node != my_node) off_node++;
+
+  // Create intra-node communicator
+  MPI_Comm node_comm;
+  MPI_Comm_split(MPI_COMM_WORLD, my_node, rank, &node_comm);
+
+  // Calculate k values by all-reducing within node
+  MPI_Allreduce(&off_node, &k_value, 1, MPI_INT, MPI_SUM, node_comm);
+
+  // Gather all ranks' k values and print
+  if (rank == 0) k_values = (int*)malloc(sizeof(int)*world_size);
+
+  MPI_Gather(&k_value, 1, MPI_INT, k_values, 1, MPI_INT, 0, MPI_COMM_WORLD);
+  if (rank == 0) {
+    for (int i = 0; i < world_size; i++) {
+      printf("[Rank %d] k_value: %d\n", i, k_values[i]);
+    }
+  }
+
+  if (rank == 0) free(k_values);
+
+  MPI_Finalize();
+  return 0;
+#endif
 
 #if DEBUG
   if (rank == 0) {
@@ -132,21 +179,20 @@ int main(int argc, char** argv) {
     MPI_Request reqs[8];
 
     // Send & receive halos
-#if NONBLOCKING
-    MPI_Irecv(rbuf_north, block_size, MPI_DOUBLE, north, 9, topo_comm, &reqs[4]);
-    MPI_Irecv(rbuf_south, block_size, MPI_DOUBLE, south, 9, topo_comm, &reqs[5]);
-    MPI_Irecv(rbuf_east, block_size, MPI_DOUBLE, east, 9, topo_comm, &reqs[6]);
-    MPI_Irecv(rbuf_west, block_size, MPI_DOUBLE, west, 9, topo_comm, &reqs[7]);
+    int req_i = 0;
+    if (north >= 0) MPI_Irecv(rbuf_north, block_size, MPI_DOUBLE, north, 9, topo_comm, &reqs[req_i++]);
+    if (south >= 0) MPI_Irecv(rbuf_south, block_size, MPI_DOUBLE, south, 9, topo_comm, &reqs[req_i++]);
+    if (east >= 0) MPI_Irecv(rbuf_east, block_size, MPI_DOUBLE, east, 9, topo_comm, &reqs[req_i++]);
+    if (west >= 0) MPI_Irecv(rbuf_west, block_size, MPI_DOUBLE, west, 9, topo_comm, &reqs[req_i++]);
 
-    MPI_Isend(sbuf_north, block_size, MPI_DOUBLE, north, 9, topo_comm, &reqs[0]);
-    MPI_Isend(sbuf_south, block_size, MPI_DOUBLE, south, 9, topo_comm, &reqs[1]);
-    MPI_Isend(sbuf_east, block_size, MPI_DOUBLE, east, 9, topo_comm, &reqs[2]);
-    MPI_Isend(sbuf_west, block_size, MPI_DOUBLE, west, 9, topo_comm, &reqs[3]);
+    if (north >= 0) MPI_Isend(sbuf_north, block_size, MPI_DOUBLE, north, 9, topo_comm, &reqs[req_i++]);
+    if (south >= 0) MPI_Isend(sbuf_south, block_size, MPI_DOUBLE, south, 9, topo_comm, &reqs[req_i++]);
+    if (east >= 0) MPI_Isend(sbuf_east, block_size, MPI_DOUBLE, east, 9, topo_comm, &reqs[req_i++]);
+    if (west >= 0) MPI_Isend(sbuf_west, block_size, MPI_DOUBLE, west, 9, topo_comm, &reqs[req_i++]);
 
-    MPI_Waitall(8, reqs, MPI_STATUSES_IGNORE);
-#else
-    // TODO
-#endif
+    assert(n_neighbors*2 == req_i);
+
+    MPI_Waitall(n_neighbors*2, reqs, MPI_STATUSES_IGNORE);
 
     local_times[2] = MPI_Wtime();
 
@@ -163,6 +209,7 @@ int main(int argc, char** argv) {
       }
     }
 
+#if !TRACE_MODE
     // Gather times
     MPI_Gather(local_durations, N_DUR, MPI_DOUBLE, global_durations, N_DUR, MPI_DOUBLE, 0, topo_comm);
 
@@ -179,8 +226,10 @@ int main(int argc, char** argv) {
             iter_time * 1000000);
       }
     }
+#endif
   }
 
+#if !TRACE_MODE
   // Print average times
   MPI_Gather(local_durations_sum, N_DUR, MPI_DOUBLE, global_durations, N_DUR, MPI_DOUBLE, 0, topo_comm);
   if (rank == 0) {
@@ -223,6 +272,7 @@ int main(int argc, char** argv) {
 
     printf("[final] Max MPI Halo: %.3lf\n", halo_max * 1000000);
   }
+#endif
 
   // Finalize MPI
   MPI_Finalize();
