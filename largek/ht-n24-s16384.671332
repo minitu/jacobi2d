@@ -1,0 +1,44 @@
+Mon Oct  7 23:46:35 EDT 2019
+[Rank 0] k_value: 5
+[Rank 1] k_value: 5
+[Rank 2] k_value: 5
+[Rank 3] k_value: 5
+[Rank 4] k_value: 5
+[Rank 5] k_value: 5
+[Rank 6] k_value: 9
+[Rank 7] k_value: 9
+[Rank 8] k_value: 9
+[Rank 9] k_value: 9
+[Rank 10] k_value: 9
+[Rank 11] k_value: 9
+[Rank 12] k_value: 9
+[Rank 13] k_value: 9
+[Rank 14] k_value: 9
+[Rank 15] k_value: 9
+[Rank 16] k_value: 9
+[Rank 17] k_value: 9
+[Rank 18] k_value: 5
+[Rank 19] k_value: 5
+[Rank 20] k_value: 5
+[Rank 21] k_value: 5
+[Rank 22] k_value: 5
+[Rank 23] k_value: 5
+
+------------------------------------------------------------
+Sender: LSF System <lsfadmin@batch3>
+Subject: Job 671332: <ht-n24-s16384> in cluster <summit> Done
+
+Job <ht-n24-s16384> was submitted from host <batch3> by user <jchoi> in cluster <summit> at Mon Oct  7 23:46:14 2019
+Job was executed on host(s) <1*batch3>, in queue <batch>, as user <jchoi> in cluster <summit> at Mon Oct  7 23:46:31 2019
+                            <42*c29n15>
+                            <42*c30n04>
+                            <42*c30n05>
+                            <42*c30n06>
+</ccs/home/jchoi> was used as the home directory.
+</ccs/home/jchoi/work/jacobi2d> was used as the working directory.
+Started at Mon Oct  7 23:46:31 2019
+Terminated at Mon Oct  7 23:46:36 2019
+Results reported at Mon Oct  7 23:46:36 2019
+
+The output (if any) is above this job summary.
+

@@ -1,0 +1,72 @@
+Mon Oct  7 23:46:48 EDT 2019
+[Rank 0] k_value: 6
+[Rank 1] k_value: 6
+[Rank 2] k_value: 6
+[Rank 3] k_value: 6
+[Rank 4] k_value: 6
+[Rank 5] k_value: 6
+[Rank 6] k_value: 12
+[Rank 7] k_value: 12
+[Rank 8] k_value: 12
+[Rank 9] k_value: 12
+[Rank 10] k_value: 12
+[Rank 11] k_value: 12
+[Rank 12] k_value: 12
+[Rank 13] k_value: 12
+[Rank 14] k_value: 12
+[Rank 15] k_value: 12
+[Rank 16] k_value: 12
+[Rank 17] k_value: 12
+[Rank 18] k_value: 12
+[Rank 19] k_value: 12
+[Rank 20] k_value: 12
+[Rank 21] k_value: 12
+[Rank 22] k_value: 12
+[Rank 23] k_value: 12
+[Rank 24] k_value: 12
+[Rank 25] k_value: 12
+[Rank 26] k_value: 12
+[Rank 27] k_value: 12
+[Rank 28] k_value: 12
+[Rank 29] k_value: 12
+[Rank 30] k_value: 12
+[Rank 31] k_value: 12
+[Rank 32] k_value: 12
+[Rank 33] k_value: 12
+[Rank 34] k_value: 12
+[Rank 35] k_value: 12
+[Rank 36] k_value: 12
+[Rank 37] k_value: 12
+[Rank 38] k_value: 12
+[Rank 39] k_value: 12
+[Rank 40] k_value: 12
+[Rank 41] k_value: 12
+[Rank 42] k_value: 6
+[Rank 43] k_value: 6
+[Rank 44] k_value: 6
+[Rank 45] k_value: 6
+[Rank 46] k_value: 6
+[Rank 47] k_value: 6
+
+------------------------------------------------------------
+Sender: LSF System <lsfadmin@batch3>
+Subject: Job 671333: <ht-n48-s16384> in cluster <summit> Done
+
+Job <ht-n48-s16384> was submitted from host <batch3> by user <jchoi> in cluster <summit> at Mon Oct  7 23:46:24 2019
+Job was executed on host(s) <1*batch3>, in queue <batch>, as user <jchoi> in cluster <summit> at Mon Oct  7 23:46:42 2019
+                            <42*c30n09>
+                            <42*c30n10>
+                            <42*g09n04>
+                            <42*g09n05>
+                            <42*g09n06>
+                            <42*g09n07>
+                            <42*g09n08>
+                            <42*g09n09>
+</ccs/home/jchoi> was used as the home directory.
+</ccs/home/jchoi/work/jacobi2d> was used as the working directory.
+Started at Mon Oct  7 23:46:42 2019
+Terminated at Mon Oct  7 23:46:49 2019
+Results reported at Mon Oct  7 23:46:49 2019
+
+The output (if any) is above this job summary.
+
