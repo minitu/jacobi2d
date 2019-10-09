@@ -24,7 +24,7 @@ __global__ void randInitKernel(double* a_old, int block_size) {
   if (i >= 1 && i <= block_size && j >= 1 && j <= block_size) {
     a_old[IND(i,j)] = curand_uniform_double(&state) * 10;
   }
-  else {
+  else if (i < block_size+2 && j < block_size+2) {
     a_old[IND(i,j)] = 0; // Halo area set to 0
   }
 }

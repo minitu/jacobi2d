@@ -82,6 +82,8 @@ int main(int argc, char** argv) {
   double* rbuf_east; double* rbuf_west;
   double* tbuf_east; double* tbuf_west;
   double* d_local_heat; double* h_local_heat;
+  size_t block_bytes = (size_t)(block_size+2)*(size_t)(block_size+2)*sizeof(double);
+  size_t halo_bytes = (size_t)(block_size)*sizeof(double);
   bool allocate_success;
 #if USE_GPU
   allocate_success = gpuAllocate(&a_old, &a_new, &sbuf_north, &sbuf_south,
@@ -90,16 +92,16 @@ int main(int argc, char** argv) {
 #else
   (void)tbuf_east;
   (void)tbuf_west;
-  a_old = (double*)malloc((block_size+2) * (block_size+2) * sizeof(double));
-  a_new = (double*)malloc((block_size+2) * (block_size+2) * sizeof(double));
-  sbuf_north = (double*)malloc(block_size * sizeof(double));
-  sbuf_south = (double*)malloc(block_size * sizeof(double));
-  sbuf_east = (double*)malloc(block_size * sizeof(double));
-  sbuf_west = (double*)malloc(block_size * sizeof(double));
-  rbuf_north = (double*)malloc(block_size * sizeof(double));
-  rbuf_south = (double*)malloc(block_size * sizeof(double));
-  rbuf_east = (double*)malloc(block_size * sizeof(double));
-  rbuf_west = (double*)malloc(block_size * sizeof(double));
+  a_old = (double*)malloc(block_bytes);
+  a_new = (double*)malloc(block_bytes);
+  sbuf_north = (double*)malloc(halo_bytes);
+  sbuf_south = (double*)malloc(halo_bytes);
+  sbuf_east = (double*)malloc(halo_bytes);
+  sbuf_west = (double*)malloc(halo_bytes);
+  rbuf_north = (double*)malloc(halo_bytes);
+  rbuf_south = (double*)malloc(halo_bytes);
+  rbuf_east = (double*)malloc(halo_bytes);
+  rbuf_west = (double*)malloc(halo_bytes);
   h_local_heat = (double*)malloc(sizeof(double));
   allocate_success = a_old && a_new && sbuf_north && sbuf_south && sbuf_east
     && sbuf_west && rbuf_north && rbuf_south && rbuf_east && rbuf_west && h_local_heat;
