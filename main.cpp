@@ -184,12 +184,10 @@ int main(int argc, char** argv) {
     if (east >= 0) MPI_Isend(sbuf_east, block_size, MPI_DOUBLE, east, 9, topo_comm, &reqs[req_i++]);
     if (west >= 0) MPI_Isend(sbuf_west, block_size, MPI_DOUBLE, west, 9, topo_comm, &reqs[req_i++]);
 
-    local_times[3] = MPI_Wtime();
-
     assert(n_neighbors*2 == req_i);
     MPI_Waitall(n_neighbors*2, reqs, MPI_STATUSES_IGNORE);
 
-    local_times[4] = MPI_Wtime();
+    local_times[3] = MPI_Wtime();
 
 #if USE_GPU
     // Unpack halo data
@@ -210,7 +208,7 @@ int main(int argc, char** argv) {
     }
 #endif
 
-    local_times[5] = MPI_Wtime();
+    local_times[4] = MPI_Wtime();
 
     // Update temperatures
 #if USE_GPU
@@ -224,7 +222,7 @@ int main(int argc, char** argv) {
     }
 #endif
 
-    local_times[6] = MPI_Wtime();
+    local_times[5] = MPI_Wtime();
 
     // Reduce local heat
     *h_local_heat = 0.0;
@@ -238,17 +236,17 @@ int main(int argc, char** argv) {
     }
 #endif
 
+    local_times[6] = MPI_Wtime();
+
+    MPI_Barrier(MPI_COMM_WORLD);
+    MPI_Barrier(MPI_COMM_WORLD);
+
     local_times[7] = MPI_Wtime();
-
-    MPI_Barrier(MPI_COMM_WORLD);
-    MPI_Barrier(MPI_COMM_WORLD);
-
-    local_times[8] = MPI_Wtime();
 
     // Sum up all local heat values
     MPI_Allreduce(h_local_heat, &global_heat_new, 1, MPI_DOUBLE, MPI_SUM, topo_comm);
 
-    local_times[9] = MPI_Wtime();
+    local_times[8] = MPI_Wtime();
 
     // Check difference in global heat
     /*
@@ -288,14 +286,14 @@ int main(int argc, char** argv) {
           iter_time += global_durations[N_DUR*j+i];
         }
 
-        printf("[%03d,%03d] Pack: %.3lf, Barrier: %.3lf, Halo-1: %.3lf, Halo-2: %.3lf, "
+        printf("[%03d,%03d] Pack: %.3lf, Barrier: %.3lf, Halo: %.3lf, "
             "Unpack: %.3lf, Stencil: %.3lf, Reduce: %.3lf, Barrier: %.3lf, "
             "Allreduce: %.3lf, Iter: %.3lf\n", iter, j,
             global_durations[N_DUR*j] * 1000000, global_durations[N_DUR*j+1] * 1000000,
             global_durations[N_DUR*j+2] * 1000000, global_durations[N_DUR*j+3] * 1000000,
             global_durations[N_DUR*j+4] * 1000000, global_durations[N_DUR*j+5] * 1000000,
             global_durations[N_DUR*j+6] * 1000000, global_durations[N_DUR*j+7] * 1000000,
-            global_durations[N_DUR*j+8] * 1000000, iter_time * 1000000);
+            iter_time * 1000000);
       }
     }
     */
@@ -311,14 +309,14 @@ int main(int argc, char** argv) {
         total_time += global_durations[N_DUR*j+i];
       }
 
-      printf("[average,%03d] Pack: %.3lf, Barrier: %.3lf, Halo-1: %.3lf, Halo-2: %.3lf, "
+      printf("[average,%03d] Pack: %.3lf, Barrier: %.3lf, Halo: %.3lf, "
           "Unpack: %.3lf, Stencil: %.3lf, Reduce: %.3lf, Barrier: %.3lf, "
           "Allreduce: %.3lf, Iter: %.3lf\n", j,
           global_durations[N_DUR*j] * 1000000, global_durations[N_DUR*j+1] * 1000000,
           global_durations[N_DUR*j+2] * 1000000, global_durations[N_DUR*j+3] * 1000000,
           global_durations[N_DUR*j+4] * 1000000, global_durations[N_DUR*j+5] * 1000000,
           global_durations[N_DUR*j+6] * 1000000, global_durations[N_DUR*j+7] * 1000000,
-          global_durations[N_DUR*j+8] * 1000000, total_time * 1000000);
+          total_time * 1000000);
     }
   }
 
@@ -331,14 +329,14 @@ int main(int argc, char** argv) {
         total_time += global_durations[N_DUR*j+i];
       }
 
-      printf("[minimum,%03d] Pack: %.3lf, Barrier: %.3lf, Halo-1: %.3lf, Halo-2: %.3lf, "
+      printf("[minimum,%03d] Pack: %.3lf, Barrier: %.3lf, Halo: %.3lf, "
           "Unpack: %.3lf, Stencil: %.3lf, Reduce: %.3lf, Barrier: %.3lf, "
           "Allreduce: %.3lf, Iter: %.3lf\n", j,
           global_durations[N_DUR*j] * 1000000, global_durations[N_DUR*j+1] * 1000000,
           global_durations[N_DUR*j+2] * 1000000, global_durations[N_DUR*j+3] * 1000000,
           global_durations[N_DUR*j+4] * 1000000, global_durations[N_DUR*j+5] * 1000000,
           global_durations[N_DUR*j+6] * 1000000, global_durations[N_DUR*j+7] * 1000000,
-          global_durations[N_DUR*j+8] * 1000000, total_time * 1000000);
+          total_time * 1000000);
     }
   }
 
@@ -356,11 +354,11 @@ int main(int argc, char** argv) {
       total_time += max_times[i];
     }
 
-    printf("[final] Max Pack: %.3lf, Barrier: %.3lf, Halo-1: %.3lf, Halo-2: %.3lf, "
+    printf("[final] Max Pack: %.3lf, Barrier: %.3lf, Halo: %.3lf, "
         "Unpack: %.3lf, Stencil: %.3lf, Reduce: %.3lf, Barrier: %.3lf, "
         "Allreduce: %.3lf, Iter: %.3lf\n", max_times[0], max_times[1], max_times[2],
         max_times[3], max_times[4], max_times[5], max_times[6], max_times[7],
-        max_times[8], total_time);
+        total_time);
   }
 
   // Finalize MPI

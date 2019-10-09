@@ -3,7 +3,7 @@
 
 #define DEBUG 1
 #define USE_GPU 1
-#define N_TIMER 10
+#define N_TIMER 9
 #define N_DUR (N_TIMER-1)
 
 #define IND(x,y) (block_size+2)*(y)+(x)
