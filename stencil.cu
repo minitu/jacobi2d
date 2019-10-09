@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <curand_kernel.h>
+#include <cub/cub.cuh>
 #include "stencil.h"
 
 #define SHARED_MEM 0
@@ -12,43 +13,78 @@ inline void gpuAssert(cudaError_t code, const char* file, int line) {
   }
 }
 
-__global__ void randInitKernel(double* a_old, int bx, int by, size_t n_pitch) {
+// GPU kernels
+__global__ void randInitKernel(double* a_old, int block_size) {
   int i = blockDim.x * blockIdx.x + threadIdx.x;
   int j = blockDim.y * blockIdx.y + threadIdx.y;
 
   curandState state;
   curand_init(IND(i,j), 0, 0, &state);
 
-  if (i >= 1 && i <= bx && j >= 1 && j <= by) {
+  if (i >= 1 && i <= block_size && j >= 1 && j <= block_size) {
     a_old[IND(i,j)] = curand_uniform_double(&state) * 10;
+  }
+  else {
+    a_old[IND(i,j)] = 0; // Halo area set to 0
   }
 }
 
-__global__ void stencilKernel(double* a_old, double* a_new, int bx, int by, size_t n_pitch) {
+__global__ void packKernel(double* a_old, double* tbuf_east, double* tbuf_west, int block_size) {
+  int i = blockDim.x * blockIdx.x + threadIdx.x;
+  int j = blockDim.y * blockIdx.y + threadIdx.y;
+
+  // West halo
+  if (i == 0 && j >= 1 && j <= block_size) {
+    tbuf_west[j-1] = a_old[IND(i,j)];
+  }
+
+  // East halo
+  if (i == (block_size+1) && j >= 1 && j <= block_size) {
+    tbuf_east[j-1] = a_old[IND(i,j)];
+  }
+}
+
+__global__ void unpackKernel(double* a_old, double* tbuf_east, double* tbuf_west, int block_size) {
+  int i = blockDim.x * blockIdx.x + threadIdx.x;
+  int j = blockDim.y * blockIdx.y + threadIdx.y;
+
+  // West halo
+  if (i == 0 && j >= 1 && j <= block_size) {
+    a_old[IND(i,j)] = tbuf_west[j-1];
+  }
+
+  // East halo
+  if (i == (block_size+1) && j >= 1 && j <= block_size) {
+    a_old[IND(i,j)] = tbuf_east[j-1];
+  }
+}
+
+__global__ void stencilKernel(double* a_old, double* a_new, int block_size) {
   int i = blockDim.x * blockIdx.x + threadIdx.x;
   int j = blockDim.y * blockIdx.y + threadIdx.y;
 #if !SHARED_MEM
-  if (i >= 1 && i <= bx && j >= 1 && j <= by) {
+  if (i >= 1 && i <= block_size && j >= 1 && j <= block_size) {
     a_new[IND(i,j)] = (a_old[IND(i,j)] + (a_old[IND(i-1,j)] + a_old[IND(i+1,j)] + a_old[IND(i,j-1)] + a_old[IND(i,j+1)]) * 0.25) * 0.5;
   }
 #else
   __shared__ double s_a_old[TILE_SIZE][TILE_SIZE];
 
-  if (i >= 1 && i <= bx && j >= 1 && j <= by) {
+  if (i >= 1 && i <= block_size && j >= 1 && j <= block_size) {
     double center = a_old[IND(i,j)];
     s_a_old[threadIdx.x][threadIdx.y] = center;
 
     __syncthreads();
 
     a_new[IND(i,j)] = (center + (((threadIdx.x > 0 && i > 1) ? s_a_old[threadIdx.x-1][threadIdx.y] : a_old[IND(i-1,j)])
-      + ((threadIdx.x < blockDim.x-1 && i < bx) ? s_a_old[threadIdx.x+1][threadIdx.y] : a_old[IND(i+1,j)])
+      + ((threadIdx.x < blockDim.x-1 && i < block_size) ? s_a_old[threadIdx.x+1][threadIdx.y] : a_old[IND(i+1,j)])
       + ((threadIdx.y > 0 && j > 1) ? s_a_old[threadIdx.x][threadIdx.y-1] : a_old[IND(i,j-1)])
-      + ((threadIdx.y < blockDim.y-1 && j < by) ? s_a_old[threadIdx.x][threadIdx.y+1] : a_old[IND(i,j+1)])) * 0.25) * 0.5;
+      + ((threadIdx.y < blockDim.y-1 && j < block_size) ? s_a_old[threadIdx.x][threadIdx.y+1] : a_old[IND(i,j+1)])) * 0.25) * 0.5;
   }
 #endif
 }
 
-__global__ void sumKernel(double* a_new, int bx, int by, size_t n_pitch, double* sum) {
+/*
+__global__ void sumKernel(double* a_new, int block_size, double* sum) {
   int i = blockDim.x * blockIdx.x + threadIdx.x;
   int j = blockDim.y * blockIdx.y + threadIdx.y;
   __shared__ double shared_sum;
@@ -60,7 +96,7 @@ __global__ void sumKernel(double* a_new, int bx, int by, size_t n_pitch, double*
   __syncthreads();
 
   // Sum reduction within thread block
-  if (i >= 1 && i <= bx && j >= 1 && j <= by) {
+  if (i >= 1 && i <= block_size && j >= 1 && j <= block_size) {
     atomicAdd(&shared_sum, a_new[IND(i,j)]);
   }
 
@@ -71,29 +107,30 @@ __global__ void sumKernel(double* a_new, int bx, int by, size_t n_pitch, double*
     atomicAdd(sum, shared_sum);
   }
 }
+*/
 
-bool gpuAllocate(double** a_old, double** a_new, size_t* pitch, double** sbuf_north,
-    double** sbuf_south, double** sbuf_east, double** sbuf_west, double** rbuf_north,
-    double** rbuf_south, double** rbuf_east, double** rbuf_west, int bx, int by,
-    double** d_local_heat, double** h_local_heat) {
-  // 2D pitched memory allocation for efficient access
-  size_t second_pitch;
-  gpuCheck(cudaMallocPitch(a_old, pitch, (bx+2) * sizeof(double), (by+2)));
-  gpuCheck(cudaMallocPitch(a_new, &second_pitch, (bx+2) * sizeof(double), (by+2)));
-  if (*pitch != second_pitch) {
-    fprintf(stderr, "Pitches are different: %d, %d\n", *pitch, second_pitch);
-    return false;
-  }
+// Host-side functions
+bool gpuAllocate(double** a_old, double** a_new, double** sbuf_north, double** sbuf_south,
+    double** sbuf_east, double** sbuf_west, double** rbuf_north, double** rbuf_south,
+    double** rbuf_east, double** rbuf_west, double** tbuf_east, double** tbuf_west,
+    int block_size, double** d_local_heat, double** h_local_heat) {
+  // Block buffers
+  gpuCheck(cudaMalloc(a_old, (block_size+2) * (block_size+2) * sizeof(double)));
+  gpuCheck(cudaMalloc(a_new, (block_size+2) * (block_size+2) * sizeof(double)));
 
   // Host communication buffers
-  gpuCheck(cudaMallocHost(sbuf_north, bx * sizeof(double)));
-  gpuCheck(cudaMallocHost(sbuf_south, bx * sizeof(double)));
-  gpuCheck(cudaMallocHost(sbuf_east, by * sizeof(double)));
-  gpuCheck(cudaMallocHost(sbuf_west, by * sizeof(double)));
-  gpuCheck(cudaMallocHost(rbuf_north, bx * sizeof(double)));
-  gpuCheck(cudaMallocHost(rbuf_south, bx * sizeof(double)));
-  gpuCheck(cudaMallocHost(rbuf_east, by * sizeof(double)));
-  gpuCheck(cudaMallocHost(rbuf_west, by * sizeof(double)));
+  gpuCheck(cudaMallocHost(sbuf_north, block_size * sizeof(double)));
+  gpuCheck(cudaMallocHost(sbuf_south, block_size * sizeof(double)));
+  gpuCheck(cudaMallocHost(sbuf_east, block_size * sizeof(double)));
+  gpuCheck(cudaMallocHost(sbuf_west, block_size * sizeof(double)));
+  gpuCheck(cudaMallocHost(rbuf_north, block_size * sizeof(double)));
+  gpuCheck(cudaMallocHost(rbuf_south, block_size * sizeof(double)));
+  gpuCheck(cudaMallocHost(rbuf_east, block_size * sizeof(double)));
+  gpuCheck(cudaMallocHost(rbuf_west, block_size * sizeof(double)));
+
+  // Temporary device buffers for packing & unpacking
+  gpuCheck(cudaMalloc(tbuf_east, block_size * sizeof(double)));
+  gpuCheck(cudaMalloc(tbuf_west, block_size * sizeof(double)));
 
   // Local heat
   gpuCheck(cudaMalloc(d_local_heat, sizeof(double)));
@@ -102,60 +139,84 @@ bool gpuAllocate(double** a_old, double** a_new, size_t* pitch, double** sbuf_no
   return true;
 }
 
-void gpuRandInit(double* a_old, int bx, int by, size_t pitch) {
+void gpuRandInit(double* a_old, int block_size) {
   dim3 block_dim(TILE_SIZE, TILE_SIZE);
-  dim3 grid_dim((bx + block_dim.x - 1) / block_dim.x, (by + block_dim.y - 1) / block_dim.y);
-  size_t n_pitch = pitch / sizeof(double);
-  randInitKernel<<<grid_dim, block_dim>>>(a_old, bx, by, n_pitch);
+  dim3 grid_dim(((block_size + 2) + block_dim.x - 1) / block_dim.x,
+      ((block_size + 2) + block_dim.y - 1) / block_dim.y);
+  randInitKernel<<<grid_dim, block_dim>>>(a_old, block_size);
   gpuCheck(cudaPeekAtLastError());
 
   cudaDeviceSynchronize();
 }
 
-void gpuPackHalo(double* a_old, int bx, int by, size_t pitch, double* sbuf_north,
-    double* sbuf_south, double* sbuf_east, double* sbuf_west) {
-  size_t n_pitch = pitch / sizeof(double);
-  gpuCheck(cudaMemcpy2D(sbuf_north, bx * sizeof(double), &a_old[IND(1,0)], pitch,
-        bx * sizeof(double), 1, cudaMemcpyDeviceToHost));
-  gpuCheck(cudaMemcpy2D(sbuf_south, bx * sizeof(double), &a_old[IND(1,by+1)], pitch,
-        bx * sizeof(double), 1, cudaMemcpyDeviceToHost));
-  gpuCheck(cudaMemcpy2D(sbuf_east, sizeof(double), &a_old[IND(bx+1,1)], pitch,
-        sizeof(double), by, cudaMemcpyDeviceToHost));
-  gpuCheck(cudaMemcpy2D(sbuf_west, sizeof(double), &a_old[IND(0,1)], pitch,
-        sizeof(double), by, cudaMemcpyDeviceToHost));
-}
-
-void gpuUnpackHalo(double* a_old, int bx, int by, size_t pitch, double* rbuf_north,
-    double* rbuf_south, double* rbuf_east, double* rbuf_west) {
-  size_t n_pitch = pitch / sizeof(double);
-  gpuCheck(cudaMemcpy2D(&a_old[IND(1,0)], pitch, rbuf_north, bx * sizeof(double),
-        bx * sizeof(double), 1, cudaMemcpyHostToDevice));
-  gpuCheck(cudaMemcpy2D(&a_old[IND(1,by+1)], pitch, rbuf_south, bx * sizeof(double),
-        bx * sizeof(double), 1, cudaMemcpyHostToDevice));
-  gpuCheck(cudaMemcpy2D(&a_old[IND(bx+1,1)], pitch, rbuf_east, sizeof(double),
-        sizeof(double), by, cudaMemcpyHostToDevice));
-  gpuCheck(cudaMemcpy2D(&a_old[IND(0,1)], pitch, rbuf_west, sizeof(double),
-        sizeof(double), by, cudaMemcpyHostToDevice));
-}
-
-void gpuStencil(double* a_old, double* a_new, int bx, int by, size_t pitch) {
+void gpuPackHalo(double* a_old, double* sbuf_north, double* sbuf_south,
+    double* sbuf_east, double* sbuf_west, double* tbuf_east, double* tbuf_west,
+    int block_size) {
+  // Move east & west halo data to contiguous device buffers
   dim3 block_dim(TILE_SIZE, TILE_SIZE);
-  dim3 grid_dim((bx + block_dim.x - 1) / block_dim.x, (by + block_dim.y - 1) / block_dim.y);
-  size_t n_pitch = pitch / sizeof(double);
-
-  stencilKernel<<<grid_dim, block_dim>>>(a_old, a_new, bx, by, n_pitch);
+  dim3 grid_dim(((block_size + 2) + block_dim.x - 1) / block_dim.x,
+      ((block_size + 2) + block_dim.y - 1) / block_dim.y);
+  packKernel<<<grid_dim, block_dim>>>(a_old, tbuf_east, tbuf_west, block_size);
   gpuCheck(cudaPeekAtLastError());
+
+  cudaDeviceSynchronize();
+
+  // Move device halo data to host
+  gpuCheck(cudaMemcpy(sbuf_north, &a_old[IND(1,0)], block_size * sizeof(double),
+        cudaMemcpyDeviceToHost));
+  gpuCheck(cudaMemcpy(sbuf_south, &a_old[IND(1,block_size+1)], block_size * sizeof(double),
+        cudaMemcpyDeviceToHost));
+  gpuCheck(cudaMemcpy(sbuf_east, tbuf_east, block_size * sizeof(double),
+        cudaMemcpyDeviceToHost));
+  gpuCheck(cudaMemcpy(sbuf_west, tbuf_west, block_size * sizeof(double),
+        cudaMemcpyDeviceToHost));
+}
+
+void gpuUnpackHalo(double* a_old, double* rbuf_north, double* rbuf_south,
+    double* rbuf_east, double* rbuf_west, double* tbuf_east, double* tbuf_west,
+    int block_size) {
+  // Move host halo data to device
+  gpuCheck(cudaMemcpy(&a_old[IND(1,0)], rbuf_north, block_size * sizeof(double),
+        cudaMemcpyHostToDevice));
+  gpuCheck(cudaMemcpy(&a_old[IND(1,block_size+1)], rbuf_south, block_size * sizeof(double),
+        cudaMemcpyHostToDevice));
+  gpuCheck(cudaMemcpy(tbuf_east, rbuf_east, block_size * sizeof(double),
+        cudaMemcpyHostToDevice));
+  gpuCheck(cudaMemcpy(tbuf_west, rbuf_west, block_size * sizeof(double),
+        cudaMemcpyHostToDevice));
+
+  // Move received east & west halo data to the right places
+  dim3 block_dim(TILE_SIZE, TILE_SIZE);
+  dim3 grid_dim(((block_size + 2) + block_dim.x - 1) / block_dim.x,
+      ((block_size + 2) + block_dim.y - 1) / block_dim.y);
+  unpackKernel<<<grid_dim, block_dim>>>(a_old, tbuf_east, tbuf_west, block_size);
+  gpuCheck(cudaPeekAtLastError());
+
   cudaDeviceSynchronize();
 }
 
-void gpuReduce(double* a_new, int bx, int by, size_t pitch, double* d_local_heat,
-    double* h_local_heat) {
-  dim3 block_dim(8, 8); // Smaller block size for more concurrency
-  dim3 grid_dim((bx + block_dim.x - 1) / block_dim.x, (by + block_dim.y - 1) / block_dim.y);
-  size_t n_pitch = pitch / sizeof(double);
-
-  sumKernel<<<grid_dim, block_dim>>>(a_new, bx, by, n_pitch, d_local_heat);
+void gpuStencil(double* a_old, double* a_new, int block_size) {
+  dim3 block_dim(TILE_SIZE, TILE_SIZE);
+  dim3 grid_dim(((block_size + 2) + block_dim.x - 1) / block_dim.x, ((block_size + 2) + block_dim.y - 1) / block_dim.y);
+  stencilKernel<<<grid_dim, block_dim>>>(a_old, a_new, block_size);
   gpuCheck(cudaPeekAtLastError());
+
   cudaDeviceSynchronize();
+}
+
+void gpuReduce(double* a_new, int block_size, double* d_local_heat, double* h_local_heat) {
+  // Use CUB to perform a sum reduction on all values
+  void* temp_storage = NULL;
+  size_t temp_storage_bytes = 0;
+  cub::DeviceReduce::Sum(temp_storage, temp_storage_bytes, a_new, d_local_heat, (block_size + 2) * (block_size + 2));
+
+  gpuCheck(cudaMalloc(&temp_storage, temp_storage_bytes));
+
+  cub::DeviceReduce::Sum(temp_storage, temp_storage_bytes, a_new, d_local_heat, (block_size + 2) * (block_size + 2));
+  gpuCheck(cudaPeekAtLastError());
+
+  cudaDeviceSynchronize();
+
+  // Copy reduced heat to host
   gpuCheck(cudaMemcpy(h_local_heat, d_local_heat, sizeof(double), cudaMemcpyDeviceToHost));
 }

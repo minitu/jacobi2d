@@ -12,10 +12,10 @@
 #include <assert.h>
 
 #define DEBUG 1
-#define N_TIMER 3
+#define N_TIMER 5
 #define N_DUR (N_TIMER-1)
-#define TRACE_MODE 1
-#define K_MODE 1
+#define TRACE_MODE 0
+#define K_MODE 0
 
 int main(int argc, char** argv) {
   // Command line arguments
@@ -171,10 +171,12 @@ int main(int argc, char** argv) {
       sbuf_west[j-1] = iter * j;
     }
 
+    local_times[1] = MPI_Wtime();
+
     MPI_Barrier(MPI_COMM_WORLD);
     MPI_Barrier(MPI_COMM_WORLD);
 
-    local_times[1] = MPI_Wtime();
+    local_times[2] = MPI_Wtime();
 
     MPI_Request reqs[8];
 
@@ -190,11 +192,12 @@ int main(int argc, char** argv) {
     if (east >= 0) MPI_Isend(sbuf_east, block_size, MPI_DOUBLE, east, 9, topo_comm, &reqs[req_i++]);
     if (west >= 0) MPI_Isend(sbuf_west, block_size, MPI_DOUBLE, west, 9, topo_comm, &reqs[req_i++]);
 
-    assert(n_neighbors*2 == req_i);
+    local_times[3] = MPI_Wtime();
 
+    assert(n_neighbors*2 == req_i);
     MPI_Waitall(n_neighbors*2, reqs, MPI_STATUSES_IGNORE);
 
-    local_times[2] = MPI_Wtime();
+    local_times[4] = MPI_Wtime();
 
     // Calculate durations
     for (int i = 0; i < N_DUR; i++) {
@@ -221,8 +224,10 @@ int main(int argc, char** argv) {
           iter_time += global_durations[N_DUR*j+i];
         }
 
-        printf("[%03d,%03d] Pack: %.3lf, MPI Halo: %.3lf, Iter: %.3lf\n", iter, j,
+        printf("[%03d,%03d] Pack: %.3lf, Barrier: %.3lf, Halo-1: %.3lf, Halo-2: %.3lf, "
+            "Iter: %.3lf\n", iter, j,
             global_durations[N_DUR*j] * 1000000, global_durations[N_DUR*j+1] * 1000000,
+            global_durations[N_DUR*j+2] * 1000000, global_durations[N_DUR*j+3] * 1000000,
             iter_time * 1000000);
       }
     }
@@ -240,8 +245,10 @@ int main(int argc, char** argv) {
         total_time += global_durations[N_DUR*j+i];
       }
 
-      printf("[average,%03d] Pack: %.3lf, MPI Halo: %.3lf, Iter: %.3lf\n", j,
+      printf("[average,%03d] Pack: %.3lf, Barrier: %.3lf, Halo-1: %.3lf, Halo-2: %.3lf, "
+          "Iter: %.3lf\n", j,
           global_durations[N_DUR*j] * 1000000, global_durations[N_DUR*j+1] * 1000000,
+          global_durations[N_DUR*j+2] * 1000000, global_durations[N_DUR*j+3] * 1000000,
           total_time * 1000000);
     }
   }
@@ -255,22 +262,28 @@ int main(int argc, char** argv) {
         total_time += global_durations[N_DUR*j+i];
       }
 
-      printf("[minimum,%03d] Pack: %.3lf, MPI Halo: %.3lf, Iter: %.3lf\n", j,
+      printf("[minimum,%03d] Pack: %.3lf, Barrier: %.3lf, Halo-1: %.3lf, Halo-2: %.3lf, "
+          "Iter: %.3lf\n", j,
           global_durations[N_DUR*j] * 1000000, global_durations[N_DUR*j+1] * 1000000,
+          global_durations[N_DUR*j+2] * 1000000, global_durations[N_DUR*j+3] * 1000000,
           total_time * 1000000);
     }
   }
 
   // Print maximum of the minimum halo times across ranks
   if (rank == 0) {
-    double halo_max = 0;
+    double halo_1_max = 0;
+    double halo_2_max = 0;
     for (int j = 0; j < world_size; j++) {
-      if (global_durations[N_DUR*j+1] > halo_max) {
-        halo_max = global_durations[N_DUR*j+1];
+      if (global_durations[N_DUR*j+2] > halo_1_max) {
+        halo_1_max = global_durations[N_DUR*j+2];
+      }
+      if (global_durations[N_DUR*j+3] > halo_2_max) {
+        halo_2_max = global_durations[N_DUR*j+3];
       }
     }
 
-    printf("[final] Max MPI Halo: %.3lf\n", halo_max * 1000000);
+    printf("[final] Max Halo-1: %.3lf, Halo-2: %.3lf\n", halo_1_max * 1000000, halo_2_max * 1000000);
   }
 #endif
 
