@@ -70,8 +70,10 @@ int main(int argc, char** argv) {
     printf("Block size: %d x %d\n", block_size, block_size);
     printf("Entire domain: %d x %d\n", block_size * px, block_size * py);
   }
+  /*
   printf("[Rank %d] (%d, %d), N: %d, E: %d, S: %d, W: %d\n",
       rank, rx, ry, north, east, south, west);
+  */
 #endif
 
   // Allocate temperature data & communication buffers
@@ -249,10 +251,12 @@ int main(int argc, char** argv) {
     local_times[9] = MPI_Wtime();
 
     // Check difference in global heat
+    /*
     if (rank == 0) {
       printf("[%03d] old: %.3lf, new: %.3lf, diff: %.3lf\n", iter,
           global_heat_old, global_heat_new, global_heat_new - global_heat_old);
     }
+    */
 
     // Swap arrays and values
     double* a_tmp;
@@ -345,8 +349,8 @@ int main(int argc, char** argv) {
     for (int i = 0; i < N_DUR; i++) {
       max_times[i] = 0;
       for (int j = 0; j < world_size; j++) {
-        if (global_durations[N_DUR*j+i] > max_times[i]) {
-          max_times[i] = global_durations[N_DUR*j+i];
+        if (global_durations[N_DUR*j+i] * 1000000 > max_times[i]) {
+          max_times[i] = global_durations[N_DUR*j+i] * 1000000;
         }
       }
       total_time += max_times[i];
@@ -356,7 +360,7 @@ int main(int argc, char** argv) {
         "Unpack: %.3lf, Stencil: %.3lf, Reduce: %.3lf, Barrier: %.3lf, "
         "Allreduce: %.3lf, Iter: %.3lf\n", max_times[0], max_times[1], max_times[2],
         max_times[3], max_times[4], max_times[5], max_times[6], max_times[7],
-        max_times[8], max_times[9], total_time);
+        max_times[8], total_time);
   }
 
   // Finalize MPI
