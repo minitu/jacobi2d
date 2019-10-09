@@ -11,5 +11,4 @@ cd $MEMBERWORK/csc357/jacobi2d
 ranks=1536
 block_size=16384
 
-export LD_LIBRARY_PATH=/ccs/home/jchoi/sst-dumpi/install/lib:$LD_LIBRARY_PATH
-jsrun -n $ranks -a 1 -c 1 -K 3 -r 6 ./halotest -s $block_size -i 100
+jsrun -n $ranks -a 1 -c 1 -K 3 -r 6 ./halotest-k -s $block_size -i 100 &> k-n"$ranks".out
