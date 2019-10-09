@@ -119,6 +119,8 @@ bool gpuAllocate(double** a_old, double** a_new, double** sbuf_north, double** s
   gpuCheck(cudaMalloc(a_new, (block_size+2) * (block_size+2) * sizeof(double)));
 
   // Host communication buffers
+  // XXX: Using cudaMallocHost significantly speeds up MPI halo communication
+  /*
   gpuCheck(cudaMallocHost(sbuf_north, block_size * sizeof(double)));
   gpuCheck(cudaMallocHost(sbuf_south, block_size * sizeof(double)));
   gpuCheck(cudaMallocHost(sbuf_east, block_size * sizeof(double)));
@@ -127,6 +129,15 @@ bool gpuAllocate(double** a_old, double** a_new, double** sbuf_north, double** s
   gpuCheck(cudaMallocHost(rbuf_south, block_size * sizeof(double)));
   gpuCheck(cudaMallocHost(rbuf_east, block_size * sizeof(double)));
   gpuCheck(cudaMallocHost(rbuf_west, block_size * sizeof(double)));
+  */
+  *sbuf_north = (double*)malloc(block_size * sizeof(double));
+  *sbuf_south = (double*)malloc(block_size * sizeof(double));
+  *sbuf_east = (double*)malloc(block_size * sizeof(double));
+  *sbuf_west = (double*)malloc(block_size * sizeof(double));
+  *rbuf_north = (double*)malloc(block_size * sizeof(double));
+  *rbuf_south = (double*)malloc(block_size * sizeof(double));
+  *rbuf_east = (double*)malloc(block_size * sizeof(double));
+  *rbuf_west = (double*)malloc(block_size * sizeof(double));
 
   // Temporary device buffers for packing & unpacking
   gpuCheck(cudaMalloc(tbuf_east, block_size * sizeof(double)));
