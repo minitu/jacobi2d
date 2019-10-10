@@ -76,6 +76,9 @@ int main(int argc, char** argv) {
   */
 #endif
 
+  // Map rank to GPU (necessary for non-jsrun systems)
+  gpuSet(rank);
+
   // Allocate temperature data & communication buffers
   double* a_old; double* a_new;
   double* sbuf_north; double* sbuf_south;

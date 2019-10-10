@@ -110,6 +110,15 @@ __global__ void sumKernel(double* a_new, int block_size, double* sum) {
 */
 
 // Host-side functions
+void gpuSet(int rank) {
+  int n_devices;
+  gpuCheck(cudaGetDeviceCount(&n_devices));
+  if (rank == 0) {
+    printf("# of visible GPU devices per rank: %d\n", n_devices);
+  }
+  gpuCheck(cudaSetDevice(rank % n_devices));
+}
+
 bool gpuAllocate(double** a_old, double** a_new, double** sbuf_north, double** sbuf_south,
     double** sbuf_east, double** sbuf_west, double** rbuf_north, double** rbuf_south,
     double** rbuf_east, double** rbuf_west, double** tbuf_east, double** tbuf_west,

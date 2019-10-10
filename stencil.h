@@ -8,6 +8,7 @@
 
 #define IND(x,y) (block_size+2)*(y)+(x)
 
+void gpuSet(int rank);
 bool gpuAllocate(double** a_old, double** a_new, double** sbuf_north, double** sbuf_south,
     double** sbuf_east, double** sbuf_west, double** rbuf_north, double** rbuf_south,
     double** rbuf_east, double** rbuf_west, double** tbuf_east, double** tbuf_west,
