@@ -178,6 +178,45 @@ int main(int argc, char** argv) {
   if (east >= 0) n_neighbors++;
   if (west >= 0) n_neighbors++;
 
+  // Measure K-value
+  int* k_values = NULL;
+  int k_value = 0;
+  int off_node = 0;
+  int node_size = 4; // XXX: Should be changed according to platform
+
+  int my_node = rank / node_size;
+  int north_node = (north >= 0) ? (north / node_size) : my_node;
+  int south_node = (south >= 0) ? (south / node_size) : my_node;
+  int east_node = (east >= 0) ? (east / node_size) : my_node;
+  int west_node = (west >= 0) ? (west / node_size) : my_node;
+
+  if (north_node != my_node) off_node++;
+  if (south_node != my_node) off_node++;
+  if (east_node != my_node) off_node++;
+  if (west_node != my_node) off_node++;
+
+  // Create intra-node communicator
+  MPI_Comm node_comm;
+  MPI_Comm_split(MPI_COMM_WORLD, my_node, rank, &node_comm);
+
+  // Calculate k values by all-reducing within node
+  MPI_Allreduce(&off_node, &k_value, 1, MPI_INT, MPI_SUM, node_comm);
+
+  // Gather all ranks' k values and print
+  if (rank == 0) k_values = (int*)malloc(sizeof(int)*world_size);
+
+  MPI_Gather(&k_value, 1, MPI_INT, k_values, 1, MPI_INT, 0, MPI_COMM_WORLD);
+  if (rank == 0) {
+    int max_k_value = 0;
+    for (int i = 0; i < world_size; i++) {
+      if (k_values[i] > max_k_value) max_k_value = k_values[i];
+      printf("[Rank %d] k_value: %d\n", i, k_values[i]);
+    }
+    printf("Maximum k_value: %d\n", max_k_value);
+
+    free(k_values);
+  }
+
 #if DEBUG
   if (rank == 0) {
     printf("Rank grid: (%d, %d)\n", px, py);
