@@ -13,7 +13,7 @@ main.o: main.cpp stencil.h
 	mpicxx -c $<
 
 stencil.o: stencil.cu stencil.h
-	nvcc -c $< -arch=compute_70 -code=sm_70 -I$(HOME)/cub-1.8.0
+	nvcc -c $< -arch=sm_30 -Xptxas -dlcm=cg -I$(HOME)/cub-1.8.0
 
 clean:
 	rm -rf jacobi2d halotest *.o
