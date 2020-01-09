@@ -1,0 +1,16 @@
+all: jacobi2d halotest
+
+jacobi2d: jacobi2d.o
+	mpicxx -o $@ $^ -L$(CUDATOOLKIT_HOME)/lib64 -lcudart
+
+jacobi2d.o: jacobi2d.cu
+	nvcc -c $< -arch=sm_60 -Xptxas -dlcm=cg -I$(I_MPI_ROOT)/include64 -I$(HOME)/cub-1.8.0
+
+halotest: halotest.o
+	mpicxx -o $@ $^ #-L$(HOME)/sst-dumpi/install/lib -ldumpi
+
+halotest.o: halotest.cpp
+	mpicxx -c $<
+
+clean:
+	rm -rf jacobi2d halotest *.o
